@@ -5,7 +5,7 @@ import plotly.express as px
 
 # API keys (replace with your actual keys)
 VESTA_API_KEY = '550d3726-b629-4432-9e64-41cf5686d63be'
-ATTOM_API_KEY = '2b1eb5ef0054d8fd5804e1d8b8e30ac2'
+ATTOM_API_KEY = '74c1336c8e4bc28e780fd5e64e17c316'
 
 # Function to fetch property data from Vesta Equity API
 def fetch_vesta_properties():
