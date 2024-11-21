@@ -1,21 +1,16 @@
 import streamlit as st
 import requests
 import pandas as pd
-import plotly.graph_objects as go
+import plotly.express as px
 
-# Vesta Equity API key (replace with your actual key)
+# API keys (replace with your actual keys)
 VESTA_API_KEY = '550d3726-b629-4432-9e64-41cf5686d63be'
-
-# ATTOM API key
 ATTOM_API_KEY = '2b1eb5ef0054d8fd5804e1d8b8e30ac2'
 
 # Function to fetch property data from Vesta Equity API
 def fetch_vesta_properties():
     url = "https://app.vestaequity.net/api/listings/"
-    headers = {
-        "apikey": VESTA_API_KEY,
-        "Content-Type": "application/json"
-    }
+    headers = {"apikey": VESTA_API_KEY, "Content-Type": "application/json"}
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
         return response.json()['results']
@@ -26,10 +21,7 @@ def fetch_vesta_properties():
 # Function to get AVM history and geoIdV4 from ATTOM API
 def get_avm_history_and_geoid(address):
     url = f"https://api.gateway.attomdata.com/propertyapi/v1.0.0/avmhistory/detail"
-    headers = {
-        'apikey': ATTOM_API_KEY,
-        'accept': 'application/json'
-    }
+    headers = {'apikey': ATTOM_API_KEY, 'accept': 'application/json'}
     params = {'address': address}
     response = requests.get(url, headers=headers, params=params)
     if response.status_code == 200:
@@ -37,20 +29,15 @@ def get_avm_history_and_geoid(address):
         avm_history = data['property'][0].get('avmhistory', [])
         geo_id_v4 = data['property'][0]['location']['geoIdV4'].get('CO')
         return [
-            {
-                "eventDate": entry['eventDate'],
-                "value": entry['amount']['value']
-            } for entry in avm_history
+            {"eventDate": entry['eventDate'], "value": entry['amount']['value']}
+            for entry in avm_history
         ], geo_id_v4
     return [], None
 
 # Function to get environmental factors from ATTOM API
 def get_environmental_factors(geoIdV4):
     url = f"https://api.gateway.attomdata.com/v4/neighborhood/community"
-    headers = {
-        'apikey': ATTOM_API_KEY,
-        'accept': 'application/json'
-    }
+    headers = {'apikey': ATTOM_API_KEY, 'accept': 'application/json'}
     params = {'geoIdv4': geoIdV4}
     response = requests.get(url, headers=headers, params=params)
     if response.status_code == 200:
@@ -77,97 +64,122 @@ def calculate_roi(investment_amount, tenure, appreciation_rate):
     roi = (future_value - investment_amount) / investment_amount
     return roi, future_value
 
+def best(properties):
+    # Highest ROI, lowest environmental risk, highest AVM value
+    return sorted(properties, key=lambda x: (x['roi'], -x['env_risk'], x['latest_avm']), reverse=True)[0]
+
+def better(properties):
+    # Higher ROI, lower environmental risk, higher AVM value
+    sorted_props = sorted(properties, key=lambda x: (x['roi'], -x['env_risk'], x['latest_avm']), reverse=True)
+    return sorted_props[1] if len(sorted_props) > 1 else sorted_props[0]
+
+def good(properties):
+    # High ROI, low environmental risk, high AVM value
+    sorted_props = sorted(properties, key=lambda x: (x['roi'], -x['env_risk'], x['latest_avm']), reverse=True)
+    return sorted_props[2] if len(sorted_props) > 2 else sorted_props[0]
+
 # Main Streamlit app
 def main():
-    st.title("Investor Portfolio ROI Estimator")
+    st.title("🏠 Investor Portfolio ROI Estimator")
 
-    # Fetch properties from Vesta Equity API
     properties = fetch_vesta_properties()
 
     if properties:
-        # Create a dropdown for property selection
         selected_properties = st.multiselect(
             "Select properties to invest in:",
             options=[f"{p['property']['street_address']}, {p['property']['city']}, {p['property']['state']}" for p in properties],
-            format_func=lambda x: x
+            format_func=lambda x: x,
+            key='property_selection'
         )
 
-        # Create a dictionary to store investment details for each property
-        investments = {}
+        investments = []
 
-        for prop in selected_properties:
-            st.subheader(prop)
+        for i, prop in enumerate(selected_properties):
+            st.markdown(f"## 🏡 {prop}")
             
-            # Find the corresponding property data
             property_data = next(p for p in properties if f"{p['property']['street_address']}, {p['property']['city']}, {p['property']['state']}" == prop)
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
-                investment_amount = st.number_input(f"Investment amount for {prop}", 
+                investment_amount = st.number_input(f"Investment amount ($)", 
                                                     min_value=float(property_data['property']['minimum_investment_amount']), 
                                                     max_value=float(property_data['available_equity_amount']),
-                                                    step=1000.0)
+                                                    step=10000.0,
+                                                    key=f'investment_{i}')
             
             with col2:
-                tenure = st.selectbox(f"Investment tenure for {prop}", [5, 10, 15])
+                tenure = st.selectbox("Investment tenure (years)", [5, 10, 15], key=f'tenure_{i}')
             
-            st.write(f"Equity Percentage Available: {property_data['listed_equity_percentage']}%")
-            st.write(f"Homeowner's Requested Amount: ${property_data['available_equity_amount']:,.2f}")
+            with col3:
+                st.metric("Equity % Available", f"{property_data['listed_equity_percentage']}%")
+
+            st.metric("Homeowner's Requested Amount", f"${property_data['available_equity_amount']:,.2f}")
             
             appreciation_rate = property_data['property']['analysis']['ten_year_historical_cagr']
-            st.write(f"Projected Annual Home Appreciation: {appreciation_rate:.2%}")
+            st.metric("Projected Annual Home Appreciation", f"{appreciation_rate:.2%}")
             
             roi, future_value = calculate_roi(investment_amount, tenure, appreciation_rate)
-            st.write(f"Estimated ROI after {tenure} years: {roi:.2%}")
-            st.write(f"Estimated future value: ${future_value:,.2f}")
+            col1.metric(f"Estimated ROI ({tenure} years)", f"{roi:.2%}")
+            col2.metric("Estimated future value", f"${future_value:,.2f}")
             
-            # Fetch AVM history and geoIdV4
             avm_history, geo_id_v4 = get_avm_history_and_geoid(prop)
             
+            env_risk_score = 0
             if geo_id_v4:
-                # Fetch environmental factors
                 env_factors = get_environmental_factors(geo_id_v4)
                 if env_factors:
-                    st.write("### Environmental Factors")
-                    for factor, value in env_factors.items():
-                        st.write(f"**{factor.replace('_', ' ').title()}:** {value}")
-            
+                    env_risk_score += sum(float(env_factors[factor]) for factor in env_factors if env_factors[factor] != 'N/A')
+                    st.markdown("### 🌍 Environmental Factors")
+                    cols_env = st.columns(4)
+                    for j, (factor, value) in enumerate(env_factors.items()):
+                        cols_env[j].metric(factor.replace('_', ' ').title(), value)
+
+            # Display AVM history as a line plot
             if avm_history:
-                st.write("### AVM History")
-                df_avm = pd.DataFrame(avm_history)
-                df_avm['eventDate'] = pd.to_datetime(df_avm['eventDate'])
-                df_avm.set_index('eventDate', inplace=True)
-                
-                fig_avm = go.Figure()
-                fig_avm.add_trace(go.Scatter(x=df_avm.index, y=df_avm['value'], mode='lines', name="Value"))
-                fig_avm.update_layout(title="AVM Value Over Time", xaxis_title="Date", yaxis_title="Value")
-                st.plotly_chart(fig_avm)
+                df_avm_history = pd.DataFrame(avm_history)
+                df_avm_history['eventDate'] = pd.to_datetime(df_avm_history['eventDate'])
+                df_avm_history = df_avm_history.sort_values('eventDate', ascending=False)
+                latest_avm_value = df_avm_history.iloc[0]['value']
+    
+                fig_avm_history = px.line(df_avm_history.sort_values('eventDate'), x='eventDate', y='value', 
+                                          title='AVM History',
+                                          labels={
+                                                'eventDate': 'Date',  # x-axis title
+                                                'value': 'AVM Value ($)'})
+                st.plotly_chart(fig_avm_history)
+            else:
+                latest_avm_value = 0
             
-            investments[prop] = {
+            # Display latest AVM value formatted like environmental factors
+            st.markdown("### 📈 Latest AVM Value")
+            cols_avm = st.columns(1)
+            cols_avm[0].metric("Latest AVM Value", f"${latest_avm_value:,.2f}")
+
+            investments.append({
+                "address": prop,
                 "amount": investment_amount,
                 "tenure": tenure,
                 "roi": roi,
-                "future_value": future_value
-            }
+                "future_value": future_value,
+                "latest_avm": latest_avm_value,
+                "env_risk": env_risk_score
+            })
         
-        if investments:
-            st.subheader("Investment Summary")
-            summary_data = pd.DataFrame.from_dict(investments, orient='index')
-            st.table(summary_data.style.format({
-                'amount': '${:,.2f}',
-                'roi': '{:.2%}',
-                'future_value': '${:,.2f}'
-            }))
-            
-            # Plotting ROI comparison
-            fig = go.Figure(data=[
-                go.Bar(name='ROI', x=summary_data.index, y=summary_data['roi'], text=summary_data['roi'].apply(lambda x: f'{x:.2%}'), textposition='auto')
-            ])
-            fig.update_layout(title='ROI Comparison')
-            st.plotly_chart(fig)
-    else:
-        st.error("Failed to fetch properties from Vesta Equity API. Please try again later.")
+        if len(investments) >= 1:
+            best_property_good = good(investments)
+            st.markdown("## 🥉 Good Property")
+            st.write(f"Address: {best_property_good['address']}")
+        
+        if len(investments) >= 2:
+            best_property_better = better(investments)
+            st.markdown("## 🥈 Better Property")
+            st.write(f"Address: {best_property_better['address']}")
+
+        if len(investments) >= 3:
+            best_property_best = best(investments)
+            st.markdown("## 🏆 Best Property")
+            st.write(f"Address: {best_property_best['address']}")
 
 if __name__ == "__main__":
     main()
