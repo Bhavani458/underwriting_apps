@@ -124,7 +124,7 @@ def main():
             col2.metric("Estimated future value", f"${future_value:,.2f}")
             
             avm_history, geo_id_v4 = get_avm_history_and_geoid(prop)
-            
+        
             env_risk_score = 0
             if geo_id_v4:
                 env_factors = get_environmental_factors(geo_id_v4)
